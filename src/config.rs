@@ -1,26 +1,20 @@
 use std::collections::BTreeSet;
 use std::env;
-use std::path::PathBuf;
 
 use serenity::all::UserId;
 
 use crate::error::Fatal;
 
-const DEFAULT_DATABASE: &str = "axiom.db";
-
 /// Конфигурация процесса из переменных окружения (`.env`).
 ///
-/// Здесь только то, чего нельзя узнать у Discord: токен, разработчики бота и место хранения
-/// настроек. Всё, что относится к конкретному серверу (владелец, роли, их иерархия и права),
-/// бот читает из Discord в момент обращения — см. `framework::Caller`, а решения администрации
-/// (доступ, журналы) хранит в базе — см. `settings`.
+/// Здесь только то, чего нельзя узнать у Discord: токен и разработчики бота. Всё, что относится
+/// к конкретному серверу (владелец, роли, их иерархия и права), бот читает из Discord в момент
+/// обращения — см. `framework::Caller`.
 pub struct Config {
     pub token: String,
     /// Явно указанные разработчики (`BOT_DEVELOPERS`). При запуске дополняются командой или
     /// владельцем приложения из Developer Portal.
     pub developers: BTreeSet<UserId>,
-    /// Файл базы настроек (`DATABASE_PATH`, по умолчанию `axiom.db`).
-    pub database: PathBuf,
 }
 
 impl Config {
@@ -39,15 +33,7 @@ impl Config {
             Err(_) => BTreeSet::new(),
         };
 
-        let database = env::var_os("DATABASE_PATH")
-            .filter(|path| !path.is_empty())
-            .map_or_else(|| PathBuf::from(DEFAULT_DATABASE), PathBuf::from);
-
-        Ok(Self {
-            token,
-            developers,
-            database,
-        })
+        Ok(Self { token, developers })
     }
 }
 

@@ -14,8 +14,6 @@ pub enum AppError {
     User(String),
     /// Ошибка Discord API / Gateway. Пользователь видит обобщённое описание, детали уходят в журнал.
     Discord(Box<serenity::Error>),
-    /// Ошибка базы настроек. Пользователь видит, что изменение не сохранено, детали — в журнале.
-    Storage(Box<sqlx::Error>),
 }
 
 impl AppError {
@@ -39,7 +37,7 @@ impl AppError {
                 }
                 _ => None,
             },
-            Self::User(_) | Self::Storage(_) => None,
+            Self::User(_) => None,
         }
     }
 
@@ -53,10 +51,6 @@ impl AppError {
                 Some(50035) => "Discord отклонил данные: проверьте ссылки и длину полей.".into(),
                 _ => "Внутренняя ошибка. Подробности записаны в журнал бота.".into(),
             },
-            Self::Storage(_) => {
-                "Не удалось сохранить настройки, ничего не изменено. Подробности записаны в журнал бота."
-                    .into()
-            }
         }
     }
 }
@@ -67,7 +61,6 @@ impl fmt::Display for AppError {
             Self::User(message) => f.write_str(message),
             // Сама ошибка Discord доступна через `source()`; см. `Chain`.
             Self::Discord(_) => f.write_str("ошибка Discord API"),
-            Self::Storage(_) => f.write_str("ошибка базы настроек"),
         }
     }
 }
@@ -76,7 +69,6 @@ impl Error for AppError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Discord(err) => Some(err.as_ref()),
-            Self::Storage(err) => Some(err.as_ref()),
             Self::User(_) => None,
         }
     }
@@ -85,12 +77,6 @@ impl Error for AppError {
 impl From<serenity::Error> for AppError {
     fn from(err: serenity::Error) -> Self {
         Self::Discord(Box::new(err))
-    }
-}
-
-impl From<sqlx::Error> for AppError {
-    fn from(err: sqlx::Error) -> Self {
-        Self::Storage(Box::new(err))
     }
 }
 

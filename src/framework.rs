@@ -15,4 +15,4 @@ pub use command::{Cx, Registry, SlashCommand};
 pub use custom_id::CustomId;
 pub use handler::Handler;
 pub use input::{Options, modal_value};
-pub use reply::{ephemeral, ephemeral_embed};
+pub use reply::ephemeral;

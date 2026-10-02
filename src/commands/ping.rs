@@ -36,9 +36,8 @@ impl SlashCommand for Ping {
             .field("Gateway", gateway, true)
             .field("REST API", format!("{} мс", rest.as_millis()), true)
             .field("Время работы", format_uptime(cx.state.uptime()), true)
-            .footer(CreateEmbedFooter::new(format!(
-                "{} v{}",
-                crate::BOT_NAME,
+            .footer(CreateEmbedFooter::new(concat!(
+                "KaiBot v",
                 env!("CARGO_PKG_VERSION")
             )));
 
