@@ -6,10 +6,13 @@
 //!   любые изменения ролей действуют сразу.
 //! * **Разработчики бота** — уровень приложения (`AppState::developers`), с сервером не связан и
 //!   прав на нём не даёт.
+//!
+//! Поверх прав Discord действует доступ к самому боту — см. [`crate::access`].
 
 use serenity::all::*;
 
 use crate::error::{AppError, Result};
+use crate::text::describe_permissions as describe;
 
 /// Участник сервера, вызвавший взаимодействие.
 #[derive(Clone, Copy)]
@@ -94,6 +97,16 @@ impl<'a> Caller<'a> {
         }
     }
 
+    /// Права участника в канале `target` того же сервера.
+    pub(super) fn permissions_in_channel(
+        &self,
+        cache: &Cache,
+        target: ChannelId,
+    ) -> Result<Permissions> {
+        self.permissions_in(cache, target)
+            .map(|(granted, _)| granted)
+    }
+
     /// Права в канале `target` того же сервера и признак ветки.
     ///
     /// Для канала взаимодействия используются права от Discord — это точно и работает в ветках.
@@ -130,56 +143,4 @@ fn is_thread(kind: ChannelType) -> bool {
         kind,
         ChannelType::PublicThread | ChannelType::PrivateThread | ChannelType::NewsThread
     )
-}
-
-/// Названия прав, как в русском клиенте Discord. Для прочих — английские названия serenity.
-const NAMES: &[(Permissions, &str)] = &[
-    (Permissions::ADMINISTRATOR, "Администратор"),
-    (Permissions::MANAGE_GUILD, "Управлять сервером"),
-    (Permissions::MANAGE_ROLES, "Управлять ролями"),
-    (Permissions::MANAGE_CHANNELS, "Управлять каналами"),
-    (Permissions::MANAGE_MESSAGES, "Управлять сообщениями"),
-    (Permissions::VIEW_CHANNEL, "Просматривать каналы"),
-    (Permissions::SEND_MESSAGES, "Отправлять сообщения"),
-    (
-        Permissions::SEND_MESSAGES_IN_THREADS,
-        "Отправлять сообщения в ветках",
-    ),
-    (Permissions::EMBED_LINKS, "Встраивать ссылки"),
-    (
-        Permissions::MENTION_EVERYONE,
-        "Упоминание @everyone, @here и всех ролей",
-    ),
-];
-
-/// «Управлять сервером», «Встраивать ссылки» — в порядке битов.
-fn describe(permissions: Permissions) -> String {
-    permissions
-        .iter()
-        .map(
-            |flag| match NAMES.iter().find(|(known, _)| *known == flag) {
-                Some((_, name)) => format!("«{name}»"),
-                None => format!("«{}»", flag.get_permission_names().join(", ")),
-            },
-        )
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn describes_permissions_in_russian() {
-        assert_eq!(
-            describe(Permissions::EMBED_LINKS | Permissions::MANAGE_GUILD),
-            "«Управлять сервером», «Встраивать ссылки»"
-        );
-    }
-
-    #[test]
-    fn falls_back_to_serenity_names() {
-        assert_eq!(describe(Permissions::BAN_MEMBERS), "«Ban Members»");
-    }
 }

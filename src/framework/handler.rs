@@ -3,10 +3,11 @@
 use std::sync::Arc;
 
 use serenity::all::*;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use super::reply::report_error;
 use super::{Caller, CustomId, Cx, Registry, SlashCommand};
+use crate::access::{self, Principal};
 use crate::error::{AppError, Chain, Result};
 use crate::state::AppState;
 
@@ -26,14 +27,28 @@ impl Handler {
         self.registry.get(name).ok_or_else(AppError::stale)
     }
 
-    /// Окружение обработчика. Здесь — единственная точка проверки права команды: оно
-    /// проверяется на каждом шаге, а не только при вызове слэш-команды.
+    /// Окружение обработчика. Здесь — единственная точка проверки доступа к боту и права
+    /// команды: они проверяются на каждом шаге, а не только при вызове слэш-команды. Поэтому
+    /// смена режима или отзыв доступа действуют и на уже открытые формы и кнопки.
     fn cx<'a>(
         &'a self,
         ctx: &'a Context,
         command: &dyn SlashCommand,
         caller: Caller<'a>,
     ) -> Result<Cx<'a>> {
+        let principal = Principal {
+            user: caller.member.user.id,
+            roles: &caller.member.roles,
+            developer: self.state.is_developer(caller.member.user.id),
+            permissions: caller.permissions(),
+        };
+        access::check(
+            &self.state.settings.global(),
+            &self.state.settings.guild(caller.guild_id).access,
+            &principal,
+            command.developer_only(),
+        )
+        .map_err(|denial| AppError::user(denial.message()))?;
         caller.require(command.permission())?;
         Ok(Cx {
             ctx,
@@ -91,6 +106,15 @@ impl EventHandler for Handler {
             ready.user.id,
             ready.guilds.len()
         );
+        // Имя аккаунта задаётся в Developer Portal; Discord ограничивает частоту его смены,
+        // поэтому бот не меняет его сам, а только напоминает.
+        if ready.user.name != crate::BOT_NAME {
+            warn!(
+                "Имя аккаунта бота «{}» отличается от «{}»: переименуйте его в Developer Portal → Bot.",
+                ready.user.name,
+                crate::BOT_NAME
+            );
+        }
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
@@ -116,7 +140,7 @@ impl EventHandler for Handler {
         if let Err(err) = outcome {
             match &err {
                 AppError::User(message) => debug!("{label}: отказ пользователю: {message}"),
-                AppError::Discord(e) => error!("{label}: {}", Chain(e.as_ref())),
+                AppError::Discord(_) | AppError::Storage(_) => error!("{label}: {}", Chain(&err)),
             }
             report_error(&ctx, id, token, &err).await;
         }

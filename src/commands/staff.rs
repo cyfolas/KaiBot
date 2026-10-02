@@ -1,9 +1,10 @@
 //! `/staff` — администрация сервера по данным Discord в реальном времени.
 //!
-//! Никаких зашитых ID: административной считается любая роль с правами управления, порядок
-//! групп — позиции ролей на сервере, владелец — владелец сервера по данным Discord. Роли
-//! интеграций (в том числе роль самого бота) и роли-«разделители» без прав не учитываются.
-//! Каждый участник показывается один раз — под своей самой высокой такой ролью.
+//! Никаких зашитых ID: административной считается любая роль с правами управления (см.
+//! [`crate::hierarchy`]), порядок групп — позиции ролей на сервере, владелец — владелец сервера
+//! по данным Discord. Роли интеграций (в том числе роль самого бота) и роли-«разделители» без
+//! прав не учитываются. Каждый участник показывается один раз — под своей самой высокой такой
+//! ролью. Изменить состав — `/staff-edit`.
 
 mod render;
 
@@ -14,16 +15,7 @@ use serenity::all::*;
 use self::render::StaffRole;
 use crate::error::{AppError, Result};
 use crate::framework::{Cx, Options, SlashCommand};
-
-/// Права, делающие роль административной или модераторской.
-const STAFF_PERMISSIONS: Permissions = Permissions::ADMINISTRATOR
-    .union(Permissions::MANAGE_GUILD)
-    .union(Permissions::MANAGE_ROLES)
-    .union(Permissions::MANAGE_CHANNELS)
-    .union(Permissions::BAN_MEMBERS)
-    .union(Permissions::KICK_MEMBERS)
-    .union(Permissions::MODERATE_MEMBERS)
-    .union(Permissions::MANAGE_MESSAGES);
+use crate::hierarchy::Hierarchy;
 
 /// Максимальный размер страницы `GET /guilds/{id}/members`.
 const MEMBERS_PAGE: u64 = 1000;
@@ -77,17 +69,8 @@ impl SlashCommand for Staff {
 /// Название сервера, владелец и административные роли от старшей к младшей — из кэша.
 fn staff_roles(cx: &Cx<'_>) -> Result<(String, UserId, Vec<StaffRole>)> {
     let guild = cx.guild()?;
-
-    let mut roles: Vec<&Role> = guild
-        .roles
-        .values()
-        .filter(|role| role.id.get() != guild.id.get()) // @everyone
-        .filter(|role| !role.managed && role.permissions.intersects(STAFF_PERMISSIONS))
-        .collect();
-    // Порядок как в клиенте Discord: позиция по убыванию, при равенстве старше меньший ID.
-    roles.sort_by(|a, b| b.position.cmp(&a.position).then(a.id.cmp(&b.id)));
-
-    let roles = roles
+    let roles = Hierarchy::of(&guild)
+        .staff()
         .into_iter()
         .map(|role| StaffRole {
             id: role.id,
