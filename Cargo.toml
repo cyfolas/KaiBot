@@ -1,10 +1,8 @@
 [package]
-name = "axiom"
-version = "0.2.0"
+name = "kaibot"
+version = "0.1.0"
 edition = "2024"
-# Минимум sqlx 0.9.
-rust-version = "1.94"
-description = "Axiom — Discord-бот на Rust и Serenity: администрация, режимы доступа, журналы сервера"
+description = "Discord-бот на Rust и Serenity: слэш-команды, формы и кнопки"
 license = "MIT"
 publish = false
 
@@ -26,14 +24,7 @@ serenity = { version = "0.12", default-features = false, features = [
 # Не используется напрямую: включает SOCKS в reqwest, через который serenity ходит в REST API.
 # Без этого прокси вида `HTTPS_PROXY=socks5h://…` из окружения ломает все HTTP-запросы.
 reqwest = { version = "0.12", default-features = false, features = ["socks"] }
-# Настройки серверов. SQLite встроен в бинарник, миграции — тоже (`sqlx::migrate!`, см. build.rs).
-sqlx = { version = "0.9", default-features = false, features = [
-    "runtime-tokio",
-    "sqlite",
-    "migrate",
-    "macros",
-] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

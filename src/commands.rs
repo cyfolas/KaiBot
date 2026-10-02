@@ -1,29 +1,16 @@
 //! Команды бота — по модулю на команду.
 //!
 //! Добавить команду: создать модуль с типом, реализующим [`SlashCommand`], и вписать его в [`ALL`].
-//! Регистрация в Discord, маршрутизация кнопок и форм, проверка доступа и права — в `framework`.
+//! Регистрация в Discord, маршрутизация кнопок и форм и проверка права — в `framework`.
 
-mod access;
-mod dev;
 mod embed;
-mod logs;
 mod ping;
 mod say;
 mod staff;
-mod staff_edit;
 
 use crate::framework::{Registry, SlashCommand};
 
-const ALL: &[&dyn SlashCommand] = &[
-    &ping::Ping,
-    &say::Say,
-    &embed::Embed,
-    &staff::Staff,
-    &staff_edit::StaffEdit,
-    &access::Access,
-    &logs::Logs,
-    &dev::Dev,
-];
+const ALL: &[&dyn SlashCommand] = &[&ping::Ping, &say::Say, &embed::Embed, &staff::Staff];
 
 pub fn registry() -> Registry {
     Registry::new(ALL)
@@ -39,10 +26,6 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
-
-    /// Типы опций «подкоманда» и «группа подкоманд».
-    const SUB_COMMAND: u64 = 1;
-    const SUB_COMMAND_GROUP: u64 = 2;
 
     fn check_name(name: &str) {
         let len = name.chars().count();
@@ -64,54 +47,6 @@ mod tests {
         value[field].as_str().unwrap_or_default()
     }
 
-    /// Опции одного уровня: команды, подкоманды или группы. Рекурсивно — для вложенных.
-    fn check_options(owner: &str, options: &[Value]) {
-        assert!(options.len() <= 25, "{owner}: не более 25 опций");
-
-        let is_sub = |option: &Value| {
-            matches!(
-                option["type"].as_u64(),
-                Some(SUB_COMMAND | SUB_COMMAND_GROUP)
-            )
-        };
-        let subs = options.iter().filter(|option| is_sub(option)).count();
-        assert!(
-            subs == 0 || subs == options.len(),
-            "{owner}: подкоманды нельзя смешивать с обычными опциями"
-        );
-
-        let mut names = HashSet::new();
-        let mut optional_seen = false;
-        for option in options {
-            let name = str_field(option, "name");
-            check_name(name);
-            assert!(names.insert(name), "{owner}: опция «{name}» дважды");
-            check_description(name, str_field(option, "description"));
-
-            let required = option["required"].as_bool().unwrap_or(false);
-            assert!(
-                !(required && optional_seen),
-                "{owner}: обязательная опция «{name}» после необязательной"
-            );
-            optional_seen |= !required;
-
-            let choices = option["choices"].as_array().cloned().unwrap_or_default();
-            assert!(choices.len() <= 25, "{owner}/{name}: не более 25 вариантов");
-            for choice in &choices {
-                let label = str_field(choice, "name").chars().count();
-                assert!(
-                    (1..=100).contains(&label),
-                    "{owner}/{name}: вариант 1–100 символов"
-                );
-            }
-
-            if is_sub(option) {
-                let nested = option["options"].as_array().cloned().unwrap_or_default();
-                check_options(&format!("{owner} {name}"), &nested);
-            }
-        }
-    }
-
     #[test]
     fn definitions_satisfy_discord_limits() {
         let mut names = HashSet::new();
@@ -126,22 +61,25 @@ mod tests {
             check_description(name, str_field(&json, "description"));
 
             let options = json["options"].as_array().cloned().unwrap_or_default();
-            check_options(name, &options);
-        }
-    }
+            assert!(options.len() <= 25, "{name}: не более 25 опций");
 
-    #[test]
-    fn developer_commands_are_hidden_from_regular_members() {
-        for (command, definition) in ALL.iter().zip(registry().definitions()) {
-            let json = serde_json::to_value(&definition).unwrap();
-            if command.developer_only() {
-                assert_eq!(
-                    json["default_member_permissions"],
-                    "0",
-                    "{}: команды разработчиков видят только администраторы",
-                    command.name()
+            let mut option_names = HashSet::new();
+            let mut optional_seen = false;
+            for option in &options {
+                let option_name = str_field(option, "name");
+                check_name(option_name);
+                assert!(
+                    option_names.insert(option_name),
+                    "{name}: опция «{option_name}» дважды"
                 );
-                assert!(command.permission().is_empty(), "{}", command.name());
+                check_description(option_name, str_field(option, "description"));
+
+                let required = option["required"].as_bool().unwrap_or(false);
+                assert!(
+                    !(required && optional_seen),
+                    "{name}: обязательная опция «{option_name}» после необязательной"
+                );
+                optional_seen |= !required;
             }
         }
     }

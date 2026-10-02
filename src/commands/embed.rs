@@ -13,7 +13,6 @@ use tracing::info;
 use self::draft::EmbedDraft;
 use crate::error::{AppError, Result};
 use crate::framework::{CustomId, Cx, Options, SlashCommand, modal_value};
-use crate::journal::{self, system};
 
 const NAME: &str = "embed";
 
@@ -237,7 +236,5 @@ async fn publish(cx: Cx<'_>, channel: ChannelId, preview: MessageEmbed) -> Resul
         channel,
         message.id
     );
-    let link = message.link();
-    journal::system(cx, system::published(NAME, author, channel, &link)).await;
-    Ok(link)
+    Ok(message.link())
 }
