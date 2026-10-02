@@ -1,41 +1,49 @@
-use std::env;
+//! KaiBot — Discord-бот на Serenity.
+//!
+//! Слои, зависимости направлены сверху вниз:
+//! * [`app`] — запуск процесса: Discord API, регистрация команд, Gateway, завершение;
+//! * [`commands`] — возможности бота, по модулю на команду;
+//! * [`framework`] — инфраструктура взаимодействий, ничего не знающая о конкретных командах;
+//! * [`config`], [`state`], [`error`] — общие типы.
 
-use serenity::async_trait;
-use serenity::model::channel::Message;
-use serenity::prelude::*;
+mod app;
+mod commands;
+mod config;
+mod error;
+mod framework;
+mod state;
 
-struct Handler;
+use std::process::ExitCode;
 
-#[async_trait]
-impl EventHandler for Handler {
-    async fn message(&self, ctx: Context, msg: Message) {
-        if msg.content == "!ping" {
-            if let Err(why) = msg.channel_id.say(&ctx.http, "Pong!").await {
-                println!("Error sending message: {why:?}");
-            }
-        }
-    }
-}
+use tracing::{error, warn};
+use tracing_subscriber::EnvFilter;
+
+use crate::error::Chain;
 
 #[tokio::main]
-async fn main() {
-    // Load environment variables from .env file
-    dotenvy::dotenv().ok();
-    // Login with a bot token from the environment
-    let token = env::var("DISCORD_TOKEN").expect("Expected a token in the environment");
-    // Set gateway intents, which decides what events the bot will be notified about
-    let intents = GatewayIntents::GUILD_MESSAGES
-        | GatewayIntents::DIRECT_MESSAGES
-        | GatewayIntents::MESSAGE_CONTENT;
+async fn main() -> ExitCode {
+    // `.env` читается до инициализации журнала, чтобы `RUST_LOG` из него тоже учитывался.
+    let dotenv = dotenvy::dotenv();
 
-    // Create a new instance of the Client, logging in as a bot.
-    let mut client = Client::builder(&token, intents)
-        .event_handler(Handler)
-        .await
-        .expect("Err creating client");
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("info,kaibot=debug")),
+        )
+        .init();
 
-    // Start listening for events by starting a single shard
-    if let Err(why) = client.start().await {
-        println!("Client error: {why:?}");
+    // Отсутствие `.env` — норма (переменные могут прийти из окружения), битый файл — нет.
+    if let Err(e) = dotenv
+        && !e.not_found()
+    {
+        warn!("Не удалось прочитать .env: {}", Chain(&e));
+    }
+
+    match app::run().await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            error!("Критическая ошибка: {}", Chain(&e));
+            ExitCode::FAILURE
+        }
     }
 }

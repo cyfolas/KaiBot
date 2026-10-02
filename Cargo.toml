@@ -2,8 +2,39 @@
 name = "kaibot"
 version = "0.1.0"
 edition = "2024"
+description = "Discord-бот на Rust и Serenity: слэш-команды, формы и кнопки"
+license = "MIT"
+publish = false
 
 [dependencies]
 dotenvy = "0.15"
-serenity = "0.12"
-tokio = { version = "1.21.2", features = ["macros", "rt-multi-thread"] }
+# Без `framework`/`standard_framework`: бот работает только через взаимодействия, их маршрутизация —
+# собственный модуль `framework`.
+serenity = { version = "0.12", default-features = false, features = [
+    "builder",
+    "cache",
+    "chrono",
+    "client",
+    "gateway",
+    "http",
+    "model",
+    "utils",
+    "rustls_backend",
+] }
+# Не используется напрямую: включает SOCKS в reqwest, через который serenity ходит в REST API.
+# Без этого прокси вида `HTTPS_PROXY=socks5h://…` из окружения ломает все HTTP-запросы.
+reqwest = { version = "0.12", default-features = false, features = ["socks"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+# Билдеры serenity сериализуются в JSON — так тесты проверяют то, что уйдёт в Discord.
+serde_json = "1"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+# Единый стиль модулей: `foo.rs` рядом с каталогом `foo/`, без `mod.rs`.
+mod_module_files = "warn"
