@@ -6,13 +6,14 @@ use serenity::all::*;
 
 use super::Caller;
 use crate::error::{AppError, Result};
+use crate::settings::GuildSettings;
 use crate::state::AppState;
 
 /// Слэш-команда вместе с её кнопками и формами.
 ///
-/// Имя, описание, опции и требуемое право — данные; из них [`Registry`] строит определение для
-/// Discord, а [`super::Handler`] — проверку доступа. Поэтому команда не может объявить одно
-/// право в Discord и забыть проверить его в коде.
+/// Имя, описание, опции, требуемое право и признак команды разработчиков — данные; из них
+/// [`Registry`] строит определение для Discord, а [`super::Handler`] — проверку доступа. Поэтому
+/// команда не может объявить одно право в Discord и забыть проверить его в коде.
 #[async_trait]
 pub trait SlashCommand: Sync {
     /// Имя команды. Оно же — первый сегмент `custom_id` её кнопок и форм (см. [`super::CustomId`]).
@@ -32,6 +33,14 @@ pub trait SlashCommand: Sync {
     /// команду тому, у кого нет этого права, не получится: бот откажет.
     fn permission(&self) -> Permissions {
         Permissions::empty()
+    }
+
+    /// Команда разработчиков бота (уровень приложения, см. [`crate::access`]).
+    ///
+    /// Discord покажет её только администраторам серверов (`default_member_permissions = 0`), а
+    /// `Handler` выполнит только для разработчиков. Прав на сервере такая команда не требует.
+    fn developer_only(&self) -> bool {
+        false
     }
 
     async fn run(&self, cx: Cx<'_>, command: &CommandInteraction) -> Result<()>;
@@ -55,7 +64,8 @@ pub trait SlashCommand: Sync {
 pub struct Cx<'a> {
     pub ctx: &'a Context,
     pub state: &'a AppState,
-    /// Вызвавший участник. Право команды ([`SlashCommand::permission`]) у него уже проверено.
+    /// Вызвавший участник. Право команды ([`SlashCommand::permission`]) и доступ к боту у него
+    /// уже проверены.
     pub caller: Caller<'a>,
 }
 
@@ -65,9 +75,26 @@ impl<'a> Cx<'a> {
         self.caller.guild(&self.ctx.cache)
     }
 
+    /// Настройки сервера вызывающего.
+    pub fn settings(&self) -> Arc<GuildSettings> {
+        self.state.settings.guild(self.caller.guild_id)
+    }
+
     /// См. [`Caller::require_post`].
     pub fn require_post(&self, target: ChannelId, extra: Permissions) -> Result<Permissions> {
         self.caller.require_post(&self.ctx.cache, target, extra)
+    }
+
+    /// Права вызывающего в канале `target` того же сервера.
+    pub fn permissions_in(&self, target: ChannelId) -> Result<Permissions> {
+        self.caller.permissions_in_channel(&self.ctx.cache, target)
+    }
+
+    /// Участник-бот на этом сервере — из Discord, а не из кэша: роли бота меняются без
+    /// событий, если не включён Server Members Intent.
+    pub async fn bot_member(&self) -> Result<Member> {
+        let bot = self.ctx.cache.current_user().id;
+        Ok(self.ctx.http.get_member(self.caller.guild_id, bot).await?)
     }
 }
 
@@ -118,7 +145,10 @@ fn definition(command: &dyn SlashCommand) -> CreateCommand {
         .contexts(vec![InteractionContext::Guild]);
 
     let permission = command.permission();
-    if permission.is_empty() {
+    if command.developer_only() {
+        // «0» — только администраторы сервера (и явно разрешённые в «Интеграциях»).
+        definition.default_member_permissions(Permissions::empty())
+    } else if permission.is_empty() {
         definition
     } else {
         definition.default_member_permissions(permission)

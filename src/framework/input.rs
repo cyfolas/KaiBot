@@ -10,6 +10,14 @@ impl<'a> Options<'a> {
         Self(command.data.options())
     }
 
+    /// Имя выбранной подкоманды и её опции.
+    pub fn subcommand(self) -> Option<(&'a str, Options<'a>)> {
+        self.0.into_iter().find_map(|option| match option.value {
+            ResolvedValue::SubCommand(options) => Some((option.name, Options(options))),
+            _ => None,
+        })
+    }
+
     fn value(&self, name: &str) -> Option<&ResolvedValue<'a>> {
         self.0
             .iter()
@@ -34,6 +42,23 @@ impl<'a> Options<'a> {
     pub fn channel(&self, name: &str) -> Option<ChannelId> {
         match self.value(name)? {
             ResolvedValue::Channel(channel) => Some(channel.id),
+            _ => None,
+        }
+    }
+
+    /// Пользователь из опции типа «пользователь» или «пользователь или роль»; участник — если
+    /// пользователь состоит на сервере.
+    pub fn user(&self, name: &str) -> Option<(&'a User, Option<&'a PartialMember>)> {
+        match self.value(name)? {
+            ResolvedValue::User(user, member) => Some((*user, *member)),
+            _ => None,
+        }
+    }
+
+    /// Роль из опции типа «роль» или «пользователь или роль».
+    pub fn role(&self, name: &str) -> Option<&'a Role> {
+        match self.value(name)? {
+            ResolvedValue::Role(role) => Some(*role),
             _ => None,
         }
     }

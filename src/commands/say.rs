@@ -13,6 +13,7 @@ use tracing::info;
 
 use crate::error::{AppError, Result};
 use crate::framework::{CustomId, Cx, Options, SlashCommand, ephemeral, modal_value};
+use crate::journal::{self, system};
 
 const NAME: &str = "say";
 
@@ -139,7 +140,8 @@ async fn send(cx: Cx<'_>, channel: ChannelId, text: &str, notify: bool) -> Resul
         )
         .await?;
 
-    // Журнал аудита: в Discord автором сообщения будет бот, реальный автор виден только здесь.
+    // Аудит: в Discord автором сообщения будет бот, реальный автор виден только здесь и в
+    // системном журнале сервера.
     let author = &cx.caller.member.user;
     info!(
         target: "audit",
@@ -149,5 +151,7 @@ async fn send(cx: Cx<'_>, channel: ChannelId, text: &str, notify: bool) -> Resul
         channel,
         message.id
     );
-    Ok(message.link())
+    let link = message.link();
+    journal::system(cx, system::published(NAME, author, channel, &link)).await;
+    Ok(link)
 }

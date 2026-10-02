@@ -1,17 +1,28 @@
-//! KaiBot — Discord-бот на Serenity.
+//! Axiom — Discord-бот на Serenity.
 //!
 //! Слои, зависимости направлены сверху вниз:
-//! * [`app`] — запуск процесса: Discord API, регистрация команд, Gateway, завершение;
-//! * [`commands`] — возможности бота, по модулю на команду;
+//! * [`app`] — запуск процесса: база, Discord API, регистрация команд, Gateway, завершение;
+//! * [`commands`] — возможности бота, по модулю на команду; [`journal`] — журналы сервера;
 //! * [`framework`] — инфраструктура взаимодействий, ничего не знающая о конкретных командах;
+//! * [`access`], [`hierarchy`], [`text`] — чистая логика: доступ к боту, иерархия ролей, текст;
+//! * [`settings`] → [`storage`] — настройки в памяти поверх SQLite;
 //! * [`config`], [`state`], [`error`] — общие типы.
 
+mod access;
 mod app;
 mod commands;
 mod config;
 mod error;
 mod framework;
+mod hierarchy;
+mod journal;
+mod settings;
 mod state;
+mod storage;
+mod text;
+
+/// Имя бота в ответах, журналах и причинах журнала аудита Discord.
+pub const BOT_NAME: &str = "Axiom";
 
 use std::process::ExitCode;
 
@@ -28,7 +39,7 @@ async fn main() -> ExitCode {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info,kaibot=debug")),
+                .unwrap_or_else(|_| EnvFilter::new("info,axiom=debug")),
         )
         .init();
 

@@ -14,6 +14,15 @@ pub fn ephemeral(content: impl Into<String>) -> CreateInteractionResponse {
     )
 }
 
+/// Ответ-embed, видимый только вызвавшему.
+pub fn ephemeral_embed(embed: CreateEmbed) -> CreateInteractionResponse {
+    CreateInteractionResponse::Message(
+        CreateInteractionResponseMessage::new()
+            .embed(embed)
+            .ephemeral(true),
+    )
+}
+
 /// Сообщает пользователю об ошибке.
 ///
 /// Обработчики отвечают на взаимодействие последним действием либо сначала откладывают ответ

@@ -2,14 +2,14 @@
 
 use serenity::all::{Mentionable, RoleId, UserId};
 
+use crate::text::join_within;
+
 /// Лимит описания embed.
 const DESCRIPTION_MAX: usize = 4096;
 /// Запас под итоговую строку «…и ещё ролей: N», если не поместились все группы.
 const TAIL_RESERVE: usize = 32;
 /// Минимум места под заголовком группы: «и ещё N» и перевод строки.
 const GROUP_MIN: usize = 24;
-/// Запас под « и ещё N» в конце списка участников при любом разумном N.
-const SUFFIX_RESERVE: usize = 16;
 
 /// Административная роль и участники, для которых она высшая.
 pub struct StaffRole {
@@ -66,63 +66,9 @@ pub fn render(owner_id: UserId, developers: &[UserId], roles: &[StaffRole]) -> S
     text
 }
 
-/// Склеивает элементы через «, », укладываясь в `max` символов; не поместившиеся заменяются
-/// на «и ещё N».
-fn join_within(items: &[String], max: usize) -> String {
-    let mut out = String::new();
-    let mut len = 0;
-    for (i, item) in items.iter().enumerate() {
-        let added = item.chars().count() + if i == 0 { 0 } else { 2 };
-        let is_last = i + 1 == items.len();
-        let limit = if is_last {
-            max
-        } else {
-            max.saturating_sub(SUFFIX_RESERVE)
-        };
-
-        if len + added > limit {
-            let separator = if i == 0 { "" } else { " " };
-            out += &format!("{separator}и ещё {}", items.len() - i);
-            break;
-        }
-        if i > 0 {
-            out += ", ";
-        }
-        out += item;
-        len += added;
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn items(n: usize) -> Vec<String> {
-        (0..n).map(|i| format!("<@{:018}>", i + 1)).collect()
-    }
-
-    #[test]
-    fn joins_everything_that_fits() {
-        assert_eq!(
-            join_within(&items(2), 100),
-            "<@000000000000000001>, <@000000000000000002>"
-        );
-    }
-
-    #[test]
-    fn truncates_with_counter_and_respects_limit() {
-        let all = items(100);
-        for max in [16, 30, 100, 1024] {
-            let joined = join_within(&all, max);
-            assert!(joined.chars().count() <= max, "max={max}: {joined}");
-            let shown = joined.matches("<@").count();
-            assert!(
-                joined.ends_with(&format!("и ещё {}", 100 - shown)),
-                "{joined}"
-            );
-        }
-    }
 
     #[test]
     fn never_exceeds_description_limit() {
