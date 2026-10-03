@@ -11,11 +11,11 @@
 
 use serenity::all::*;
 
+use crate::domain::text::{describe_permissions, join_within};
 use crate::error::{AppError, Result};
 use crate::framework::{Cx, Options, SlashCommand};
 use crate::journal::{self, system};
 use crate::settings::{LogChannels, LogKind};
-use crate::text::{describe_permissions, join_within};
 
 const NAME: &str = "logs";
 

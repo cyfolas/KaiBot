@@ -5,7 +5,7 @@
 
 use serenity::all::*;
 
-use crate::hierarchy::{Standing, mentions};
+use crate::domain::hierarchy::{Standing, mentions};
 use crate::settings::LogKind;
 
 const COLOR_INFO: Colour = Colour(0x0058_65F2);
@@ -52,7 +52,11 @@ pub fn staff_changed(
         embed = embed.field("Сняты роли", mentions(removed), true);
     }
     if let Some(reason) = reason {
-        embed = embed.field("Причина", crate::text::truncate(reason, 1024), false);
+        embed = embed.field(
+            "Причина",
+            crate::domain::text::truncate(reason, 1024),
+            false,
+        );
     }
     embed
 }
@@ -66,6 +70,29 @@ pub fn published(command: &str, author: &User, channel: ChannelId, link: &str) -
     )
     .field("Канал", channel.mention().to_string(), true)
     .field("Сообщение", format!("[перейти]({link})"), true)
+}
+
+/// Политика прав применена (полностью или частично).
+pub fn policy_applied(
+    actor: &User,
+    done: usize,
+    total: usize,
+    failure: Option<&str>,
+) -> CreateEmbed {
+    match failure {
+        None => base(COLOR_STAFF, "🧩 Политика прав применена", Some(actor)).field(
+            "Операций",
+            done.to_string(),
+            true,
+        ),
+        Some(error) => base(
+            COLOR_WARNING,
+            "🧩 Политика прав применена частично",
+            Some(actor),
+        )
+        .field("Выполнено", format!("{done} из {total}"), true)
+        .field("Ошибка", crate::domain::text::truncate(error, 1024), false),
+    }
 }
 
 /// Положение роли бота изменилось: что он теперь может.

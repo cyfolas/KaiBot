@@ -1,47 +1,14 @@
-//! Текст для Discord: названия прав по-русски и укладывание в лимиты сообщений и embed.
-//! Чистая логика — покрыта тестами.
+//! Текст для Discord: укладывание списков и строк в лимиты сообщений и embed.
+//! Чистая логика — покрыта тестами. Названия прав — в [`super::permissions`].
 
 use serenity::all::Permissions;
 
 /// Запас под « и ещё N» в конце списка при любом разумном N.
 const SUFFIX_RESERVE: usize = 16;
 
-/// Названия прав, как в русском клиенте Discord. Для прочих — английские названия serenity.
-const PERMISSION_NAMES: &[(Permissions, &str)] = &[
-    (Permissions::ADMINISTRATOR, "Администратор"),
-    (Permissions::MANAGE_GUILD, "Управлять сервером"),
-    (Permissions::MANAGE_ROLES, "Управлять ролями"),
-    (Permissions::MANAGE_CHANNELS, "Управлять каналами"),
-    (Permissions::MANAGE_MESSAGES, "Управлять сообщениями"),
-    (Permissions::KICK_MEMBERS, "Выгонять участников"),
-    (Permissions::BAN_MEMBERS, "Банить участников"),
-    (Permissions::MODERATE_MEMBERS, "Тайм-аут участников"),
-    (Permissions::VIEW_CHANNEL, "Просматривать каналы"),
-    (Permissions::SEND_MESSAGES, "Отправлять сообщения"),
-    (
-        Permissions::SEND_MESSAGES_IN_THREADS,
-        "Отправлять сообщения в ветках",
-    ),
-    (Permissions::EMBED_LINKS, "Встраивать ссылки"),
-    (Permissions::ATTACH_FILES, "Прикреплять файлы"),
-    (
-        Permissions::MENTION_EVERYONE,
-        "Упоминание @everyone, @here и всех ролей",
-    ),
-];
-
-/// «Управлять сервером», «Встраивать ссылки» — в порядке битов.
+/// «Управлять сервером», «Встраивать ссылки» — в порядке битов (см. [`super::permissions::describe`]).
 pub fn describe_permissions(permissions: Permissions) -> String {
-    permissions
-        .iter()
-        .map(
-            |flag| match PERMISSION_NAMES.iter().find(|(known, _)| *known == flag) {
-                Some((_, name)) => format!("«{name}»"),
-                None => format!("«{}»", flag.get_permission_names().join(", ")),
-            },
-        )
-        .collect::<Vec<_>>()
-        .join(", ")
+    super::permissions::describe(permissions)
 }
 
 /// Склеивает элементы через «, », укладываясь в `max` символов; не поместившиеся заменяются
@@ -82,6 +49,33 @@ pub fn truncate(text: &str, max: usize) -> String {
     out
 }
 
+/// Строки, уложенные в `max` символов с переводами строк; не поместившиеся заменяются
+/// строкой «…и ещё N».
+pub fn lines_within(lines: &[String], max: usize) -> String {
+    let mut out = String::new();
+    for (i, line) in lines.iter().enumerate() {
+        let is_last = i + 1 == lines.len();
+        let limit = if is_last {
+            max
+        } else {
+            max.saturating_sub(SUFFIX_RESERVE)
+        };
+        let added = line.chars().count() + usize::from(i > 0);
+        if out.chars().count() + added > limit {
+            if i > 0 {
+                out.push('\n');
+            }
+            out += &format!("…и ещё {}", lines.len() - i);
+            break;
+        }
+        if i > 0 {
+            out.push('\n');
+        }
+        out += line;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,14 +89,6 @@ mod tests {
         assert_eq!(
             describe_permissions(Permissions::EMBED_LINKS | Permissions::MANAGE_GUILD),
             "«Управлять сервером», «Встраивать ссылки»"
-        );
-    }
-
-    #[test]
-    fn falls_back_to_serenity_names() {
-        assert_eq!(
-            describe_permissions(Permissions::MANAGE_WEBHOOKS),
-            "«Manage Webhooks»"
         );
     }
 
@@ -133,5 +119,16 @@ mod tests {
         assert_eq!(truncate("привет", 10), "привет");
         assert_eq!(truncate("привет", 4), "при…");
         assert_eq!(truncate("привет", 4).chars().count(), 4);
+    }
+
+    #[test]
+    fn lines_within_respects_limit() {
+        let lines: Vec<String> = (0..50).map(|i| format!("строка {i}")).collect();
+        for max in [20, 60, 200, 4096] {
+            let text = lines_within(&lines, max);
+            assert!(text.chars().count() <= max, "max={max}: {text}");
+        }
+        assert_eq!(lines_within(&lines[..2], 100), "строка 0\nстрока 1");
+        assert!(lines_within(&lines, 60).contains("…и ещё "));
     }
 }

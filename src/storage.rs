@@ -4,15 +4,16 @@
 //! [`crate::settings`]. Схема — `migrations/`; миграции встроены в бинарник и применяются при
 //! запуске, так что отдельная установка базы не нужна.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::num::NonZeroU64;
 use std::path::Path;
 
-use serenity::all::GuildId;
+use serenity::all::{ChannelId, GuildId, Permissions, RoleId};
 use sqlx::migrate::Migrator;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
 
-use crate::access::{Effect, GlobalAccess, GlobalMode, GuildAccess, GuildMode, Subject};
+use crate::domain::access::{Effect, GlobalAccess, GlobalMode, GuildAccess, GuildMode, Subject};
+use crate::domain::policy::{ChannelClass, Policy};
 use crate::error::Fatal;
 use crate::settings::{GuildSettings, LogChannels};
 
@@ -23,6 +24,13 @@ type Rows<T> = Result<T, sqlx::Error>;
 type GuildRow = (i64, String, Option<i64>, Option<i64>, Option<i64>);
 /// Строка `access_rules`: сервер, вид субъекта, субъект, действие.
 type RuleRow = (i64, String, i64, String);
+/// Строка `guild_policy`: сервер, роли участника, неверифицированного, чат- и войс-мута,
+/// права @everyone и участника.
+type PolicyRow = (i64, i64, Option<i64>, Option<i64>, Option<i64>, i64, i64);
+/// Строка `channel_policy`: сервер, канал, класс.
+type ChannelRow = (i64, i64, String);
+/// Строка `channel_policy_roles`: сервер, канал, роль.
+type ChannelRoleRow = (i64, i64, i64);
 
 /// Соединение с базой. Клонирование дешёвое: копируется ссылка на пул.
 #[derive(Clone)]
@@ -99,6 +107,8 @@ impl Storage {
                 .insert(subject, parse_key(&effect, Effect::from_key)?);
         }
 
+        let mut policies = self.load_policies().await?;
+
         let mut guilds = HashMap::with_capacity(guild_rows.len());
         for (guild, mode, messages, voice, system) in guild_rows {
             let guild: GuildId = id(guild)?;
@@ -111,9 +121,69 @@ impl Storage {
                 voice: voice.map(id).transpose()?,
                 system: system.map(id).transpose()?,
             };
-            guilds.insert(guild, GuildSettings { access, logs });
+            guilds.insert(
+                guild,
+                GuildSettings {
+                    access,
+                    logs,
+                    policy: policies.remove(&guild),
+                },
+            );
         }
         Ok((global, guilds))
+    }
+
+    /// Политики прав всех серверов: роли, затем назначение каналов и их роли.
+    async fn load_policies(&self) -> Rows<HashMap<GuildId, Policy>> {
+        let policy_rows: Vec<PolicyRow> = sqlx::query_as(
+            "SELECT guild_id, member_role, unverified_role, chat_mute_role, voice_mute_role, \
+                 everyone_permissions, member_permissions \
+             FROM guild_policy",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let channel_rows: Vec<ChannelRow> =
+            sqlx::query_as("SELECT guild_id, channel_id, class FROM channel_policy")
+                .fetch_all(&self.pool)
+                .await?;
+        let role_rows: Vec<ChannelRoleRow> =
+            sqlx::query_as("SELECT guild_id, channel_id, role_id FROM channel_policy_roles")
+                .fetch_all(&self.pool)
+                .await?;
+
+        let mut channel_roles: HashMap<(GuildId, ChannelId), BTreeSet<RoleId>> = HashMap::new();
+        for (guild, channel, role) in role_rows {
+            channel_roles
+                .entry((id(guild)?, id(channel)?))
+                .or_default()
+                .insert(id(role)?);
+        }
+
+        let mut policies = HashMap::with_capacity(policy_rows.len());
+        for (guild, member, unverified, chat_mute, voice_mute, everyone, member_bits) in policy_rows
+        {
+            let guild: GuildId = id(guild)?;
+            let mut policy = Policy::new(id(member)?);
+            policy.unverified = unverified.map(id).transpose()?;
+            policy.chat_mute = chat_mute.map(id).transpose()?;
+            policy.voice_mute = voice_mute.map(id).transpose()?;
+            policy.everyone_permissions = bits(everyone);
+            policy.member_permissions = bits(member_bits);
+            policies.insert(guild, policy);
+        }
+        for (guild, channel, class) in channel_rows {
+            let guild: GuildId = id(guild)?;
+            let channel: ChannelId = id(channel)?;
+            let roles = channel_roles.remove(&(guild, channel)).unwrap_or_default();
+            let class = ChannelClass::from_key(&class, roles)
+                .ok_or_else(|| corrupt(format!("класс канала «{class}»")))?;
+            policies
+                .get_mut(&guild)
+                .ok_or_else(|| corrupt("назначение канала без политики".into()))?
+                .channels
+                .insert(channel, class);
+        }
+        Ok(policies)
     }
 
     /// Сохраняет настройки сервера целиком в одной транзакции. Настройки по умолчанию
@@ -159,6 +229,45 @@ impl Storage {
                 .execute(&mut *tx)
                 .await?;
             }
+
+            if let Some(policy) = &settings.policy {
+                sqlx::query(
+                    "INSERT INTO guild_policy (guild_id, member_role, unverified_role, \
+                     chat_mute_role, voice_mute_role, everyone_permissions, member_permissions) \
+                     VALUES (?, ?, ?, ?, ?, ?, ?)",
+                )
+                .bind(guild)
+                .bind(sql_id(policy.member))
+                .bind(policy.unverified.map(sql_id))
+                .bind(policy.chat_mute.map(sql_id))
+                .bind(policy.voice_mute.map(sql_id))
+                .bind(sql_bits(policy.everyone_permissions))
+                .bind(sql_bits(policy.member_permissions))
+                .execute(&mut *tx)
+                .await?;
+
+                for (channel, class) in &policy.channels {
+                    sqlx::query(
+                        "INSERT INTO channel_policy (guild_id, channel_id, class) VALUES (?, ?, ?)",
+                    )
+                    .bind(guild)
+                    .bind(sql_id(*channel))
+                    .bind(class.key())
+                    .execute(&mut *tx)
+                    .await?;
+                    for &role in class.roles().into_iter().flatten() {
+                        sqlx::query(
+                            "INSERT INTO channel_policy_roles (guild_id, channel_id, role_id) \
+                             VALUES (?, ?, ?)",
+                        )
+                        .bind(guild)
+                        .bind(sql_id(*channel))
+                        .bind(sql_id(role))
+                        .execute(&mut *tx)
+                        .await?;
+                    }
+                }
+            }
         }
         tx.commit().await
     }
@@ -193,6 +302,16 @@ fn id<T: From<NonZeroU64>>(raw: i64) -> Rows<T> {
     NonZeroU64::new(raw.cast_unsigned())
         .map(T::from)
         .ok_or_else(|| corrupt("нулевой ID".into()))
+}
+
+/// Набор прав → INTEGER с тем же битовым представлением.
+fn sql_bits(permissions: Permissions) -> i64 {
+    permissions.bits().cast_signed()
+}
+
+/// INTEGER → набор прав; неизвестные биты сохраняются.
+fn bits(raw: i64) -> Permissions {
+    Permissions::from_bits_retain(raw.cast_unsigned())
 }
 
 fn parse_key<T>(key: &str, parse: impl Fn(&str) -> Option<T>) -> Rows<T> {
@@ -237,6 +356,19 @@ mod tests {
             .set_rule(Subject::Role(RoleId::new(2)), Effect::Deny)
             .unwrap();
         settings.logs.voice = Some(ChannelId::new(3));
+        let mut policy = Policy::new(RoleId::new(10));
+        policy.chat_mute = Some(RoleId::new(12));
+        policy.member_permissions |= crate::domain::permissions::PIN_MESSAGES;
+        policy.channels.insert(
+            ChannelId::new(20),
+            ChannelClass::Private {
+                roles: BTreeSet::from([RoleId::new(30), RoleId::new(31)]),
+            },
+        );
+        policy
+            .channels
+            .insert(ChannelId::new(21), ChannelClass::Ignored);
+        settings.policy = Some(policy);
         storage.save_guild(guild, &settings).await.unwrap();
         assert_eq!(storage.load().await.unwrap().1[&guild], settings);
 
@@ -245,10 +377,25 @@ mod tests {
             .await
             .unwrap();
         assert!(storage.load().await.unwrap().1.is_empty());
-        let rules: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM access_rules")
-            .fetch_one(&storage.pool)
-            .await
-            .unwrap();
-        assert_eq!(rules, 0, "правила удаляются каскадом");
+        // sqlx принимает только статические строки запросов (защита от инъекций).
+        for sql in [
+            "SELECT COUNT(*) FROM access_rules",
+            "SELECT COUNT(*) FROM guild_policy",
+            "SELECT COUNT(*) FROM channel_policy",
+            "SELECT COUNT(*) FROM channel_policy_roles",
+        ] {
+            let rows: i64 = sqlx::query_scalar(sql)
+                .fetch_one(&storage.pool)
+                .await
+                .unwrap();
+            assert_eq!(rows, 0, "{sql}: очищается каскадом");
+        }
+    }
+
+    #[test]
+    fn permission_bits_round_trip() {
+        let all = Permissions::all() | crate::domain::permissions::BYPASS_SLOWMODE;
+        assert_eq!(bits(sql_bits(all)), all);
+        assert_eq!(bits(sql_bits(Permissions::empty())), Permissions::empty());
     }
 }

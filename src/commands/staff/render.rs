@@ -2,7 +2,8 @@
 
 use serenity::all::{Mentionable, RoleId, UserId};
 
-use crate::text::join_within;
+use crate::domain::roles::Tier;
+use crate::domain::text::join_within;
 
 /// Лимит описания embed.
 const DESCRIPTION_MAX: usize = 4096;
@@ -14,12 +15,13 @@ const GROUP_MIN: usize = 24;
 /// Административная роль и участники, для которых она высшая.
 pub struct StaffRole {
     pub id: RoleId,
-    pub administrator: bool,
+    pub tier: Tier,
     pub members: Vec<UserId>,
 }
 
-/// Описание embed: владелец, разработчики, затем группы по ролям. Не длиннее лимита Discord:
-/// не поместившиеся участники и роли заменяются счётчиками.
+/// Описание embed: владелец, разработчики, затем роли по уровням (администраторы, управление,
+/// модерация), внутри уровня — по старшинству. Не длиннее лимита Discord: не поместившиеся
+/// участники и роли заменяются счётчиками.
 pub fn render(owner_id: UserId, developers: &[UserId], roles: &[StaffRole]) -> String {
     let mut text = format!("👑 **Владелец сервера:** {}\n", owner_id.mention());
     if !developers.is_empty() {
@@ -30,23 +32,26 @@ pub fn render(owner_id: UserId, developers: &[UserId], roles: &[StaffRole]) -> S
         text += &format!("🛠 **Разработчики бота:** {}\n", mentions.join(", "));
     }
 
-    let groups: Vec<&StaffRole> = roles
+    let mut groups: Vec<&StaffRole> = roles
         .iter()
         .filter(|role| !role.members.is_empty())
         .collect();
+    // Устойчивая сортировка: порядок по старшинству внутри уровня сохраняется.
+    groups.sort_by_key(|role| role.tier);
     if groups.is_empty() {
         text += "\nАдминистративные роли не найдены.";
         return text;
     }
 
     let budget = DESCRIPTION_MAX - TAIL_RESERVE;
+    let mut current_tier = None;
     for (shown, role) in groups.iter().enumerate() {
-        let marker = if role.administrator {
-            " · полные права"
-        } else {
-            ""
-        };
-        let header = format!("\n{}{marker}\n", role.id.mention());
+        let mut header = String::new();
+        if current_tier != Some(role.tier) {
+            current_tier = Some(role.tier);
+            header += &format!("\n{} **{}**", role.tier.emoji(), role.tier.label());
+        }
+        header += &format!("\n{}\n", role.id.mention());
 
         let used = text.chars().count() + header.chars().count();
         if used + GROUP_MIN > budget {
@@ -75,7 +80,11 @@ mod tests {
         let roles: Vec<StaffRole> = (1..=40)
             .map(|r| StaffRole {
                 id: RoleId::new(r),
-                administrator: r == 1,
+                tier: if r == 1 {
+                    Tier::Administrator
+                } else {
+                    Tier::Moderation
+                },
                 members: (1..=200).map(|m| UserId::new(r * 1_000 + m)).collect(),
             })
             .collect();
@@ -85,24 +94,29 @@ mod tests {
     }
 
     #[test]
-    fn lists_roles_in_order_and_skips_empty() {
-        let role = |id, administrator, members: Vec<u64>| StaffRole {
+    fn groups_by_tier_then_seniority_and_skips_empty() {
+        let role = |id, tier, members: Vec<u64>| StaffRole {
             id: RoleId::new(id),
-            administrator,
+            tier,
             members: members.into_iter().map(UserId::new).collect(),
         };
+        // Позиции сверху вниз: 1 (модерация), 2 (пусто), 3 (администратор), 4 (модерация).
         let roles = vec![
-            role(1, true, vec![10]),
-            role(2, false, vec![]),
-            role(3, false, vec![30]),
+            role(1, Tier::Moderation, vec![10]),
+            role(2, Tier::Management, vec![]),
+            role(3, Tier::Administrator, vec![30]),
+            role(4, Tier::Moderation, vec![40]),
         ];
         let text = render(UserId::new(99), &[UserId::new(10)], &roles);
 
         assert!(text.contains("<@99>"));
         assert!(!text.contains("<@&2>"));
-        let first = text.find("<@&1> · полные права").unwrap();
-        let third = text.find("<@&3>").unwrap();
-        assert!(first < third);
+        assert!(!text.contains("Управление"));
+        let admin = text.find("<@&3>").unwrap();
+        let first_mod = text.find("<@&1>").unwrap();
+        let second_mod = text.find("<@&4>").unwrap();
+        assert!(admin < first_mod && first_mod < second_mod);
+        assert!(text.find("Администраторы").unwrap() < text.find("Модерация").unwrap());
     }
 
     #[test]

@@ -11,7 +11,7 @@ use std::sync::{Mutex, PoisonError};
 
 use serenity::all::*;
 
-use crate::text::truncate;
+use crate::domain::text::truncate;
 
 /// Сколько последних сообщений канала помнит бот.
 pub const PER_CHANNEL: usize = 200;

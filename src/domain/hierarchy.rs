@@ -12,8 +12,9 @@
 //!    Исключение — снять роль с самого себя (сложить полномочия).
 //! 4. Выдать можно только роль, все права которой есть у вызывающего: иначе он раздал бы права,
 //!    которых у него нет.
-//! 5. Затрагиваются только административные роли ([`STAFF_PERMISSIONS`]): ни @everyone, ни роли
-//!    интеграций (их Discord не даёт выдавать вручную). Боты в администрацию не входят.
+//! 5. Затрагиваются только административные роли (см. [`super::roles`]: обычная роль уровня не
+//!    ниже «Модерация»): ни @everyone, ни роли интеграций (их Discord не даёт выдавать вручную).
+//!    Боты в администрацию не входят.
 //!
 //! Владелец сервера не ограничен пп. 2–4.
 
@@ -22,15 +23,7 @@ use std::collections::HashMap;
 
 use serenity::all::{Guild, GuildId, Mentionable, Permissions, Role, RoleId, UserId};
 
-/// Права, делающие роль административной или модераторской.
-pub const STAFF_PERMISSIONS: Permissions = Permissions::ADMINISTRATOR
-    .union(Permissions::MANAGE_GUILD)
-    .union(Permissions::MANAGE_ROLES)
-    .union(Permissions::MANAGE_CHANNELS)
-    .union(Permissions::BAN_MEMBERS)
-    .union(Permissions::KICK_MEMBERS)
-    .union(Permissions::MODERATE_MEMBERS)
-    .union(Permissions::MANAGE_MESSAGES);
+use super::roles::{Class, Origin, Tier};
 
 /// Роль в объёме, нужном для иерархии.
 #[derive(Clone, Debug)]
@@ -38,8 +31,8 @@ pub struct RoleInfo {
     pub id: RoleId,
     pub position: u16,
     pub permissions: Permissions,
-    /// Роль интеграции, бустеров или подписки: Discord не даёт выдавать её вручную.
-    pub managed: bool,
+    /// Происхождение: роли интеграций, бустеров, подписок Discord не даёт выдавать вручную.
+    pub origin: Origin,
 }
 
 impl From<&Role> for RoleInfo {
@@ -48,7 +41,7 @@ impl From<&Role> for RoleInfo {
             id: role.id,
             position: role.position,
             permissions: role.permissions,
-            managed: role.managed,
+            origin: Origin::of(role),
         }
     }
 }
@@ -59,6 +52,14 @@ impl RoleInfo {
             position: self.position,
             id: Reverse(self.id),
         }
+    }
+
+    pub fn class(&self) -> Class {
+        Class::from_parts(self.origin, self.permissions)
+    }
+
+    pub fn tier(&self) -> Tier {
+        self.class().tier
     }
 }
 
@@ -127,16 +128,43 @@ impl Hierarchy {
         self.roles.get(&id)
     }
 
+    /// Все роли сервера, включая @everyone, в произвольном порядке.
+    pub fn roles(&self) -> impl Iterator<Item = &RoleInfo> {
+        self.roles.values()
+    }
+
+    pub fn guild_id(&self) -> GuildId {
+        self.guild_id
+    }
+
+    pub fn owner(&self) -> UserId {
+        self.owner
+    }
+
+    /// Роль @everyone: её ID совпадает с ID сервера.
+    pub fn everyone(&self) -> RoleId {
+        RoleId::new(self.guild_id.get())
+    }
+
     /// Роль @everyone: её ID совпадает с ID сервера.
     pub fn is_everyone(&self, id: RoleId) -> bool {
         id.get() == self.guild_id.get()
     }
 
-    /// Административная роль: с правами управления, не @everyone и не роль интеграции.
+    /// Заменяет права роли (для моделирования плана). `false`, если роли нет.
+    pub fn set_permissions(&mut self, id: RoleId, permissions: Permissions) -> bool {
+        match self.roles.get_mut(&id) {
+            Some(role) => {
+                role.permissions = permissions;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Административная роль: обычная (не @everyone, не интеграция) уровня не ниже «Модерация».
     pub fn is_staff(&self, role: &RoleInfo) -> bool {
-        !self.is_everyone(role.id)
-            && !role.managed
-            && role.permissions.intersects(STAFF_PERMISSIONS)
+        !self.is_everyone(role.id) && role.class().is_staff()
     }
 
     /// Роли, кроме @everyone, от старшей к младшей.
@@ -332,7 +360,7 @@ impl Refusal {
             Self::Escalation { role, missing } => format!(
                 "У {} есть права, которых нет у вас: {}. Выдать её может тот, у кого они есть.",
                 role.mention(),
-                crate::text::describe_permissions(*missing)
+                crate::domain::text::describe_permissions(*missing)
             ),
             Self::BotCannotManageRoles => {
                 "У бота нет права «Управлять ролями». Выдайте его роли бота в настройках сервера."
@@ -464,7 +492,7 @@ fn staff_role(hierarchy: &Hierarchy, id: RoleId) -> Result<&RoleInfo, Refusal> {
         return Err(Refusal::Everyone);
     }
     let role = hierarchy.role(id).ok_or(Refusal::UnknownRole(id))?;
-    if role.managed {
+    if role.origin.is_managed() {
         return Err(Refusal::Managed(id));
     }
     if !hierarchy.is_staff(role) {
@@ -499,12 +527,12 @@ mod tests {
     const HELPER_ROLE: RoleId = RoleId::new(13);
     const MEMBER_ROLE: RoleId = RoleId::new(14);
 
-    fn role(id: RoleId, position: u16, permissions: Permissions, managed: bool) -> RoleInfo {
+    fn role(id: RoleId, position: u16, permissions: Permissions, origin: Origin) -> RoleInfo {
         RoleInfo {
             id,
             position,
             permissions,
-            managed,
+            origin,
         }
     }
 
@@ -517,14 +545,14 @@ mod tests {
                     RoleId::new(GUILD.get()),
                     0,
                     Permissions::SEND_MESSAGES,
-                    false,
+                    Origin::Everyone,
                 ),
-                role(ADMIN_ROLE, 5, Permissions::ADMINISTRATOR, false),
+                role(ADMIN_ROLE, 5, Permissions::ADMINISTRATOR, Origin::Regular),
                 role(
                     BOT_ROLE,
                     4,
                     Permissions::MANAGE_ROLES | Permissions::BAN_MEMBERS,
-                    true,
+                    Origin::Integration,
                 ),
                 role(
                     MOD_ROLE,
@@ -532,10 +560,15 @@ mod tests {
                     Permissions::MANAGE_ROLES
                         | Permissions::KICK_MEMBERS
                         | Permissions::BAN_MEMBERS,
-                    false,
+                    Origin::Regular,
                 ),
-                role(HELPER_ROLE, 2, Permissions::MANAGE_MESSAGES, false),
-                role(MEMBER_ROLE, 1, Permissions::empty(), false),
+                role(
+                    HELPER_ROLE,
+                    2,
+                    Permissions::MANAGE_MESSAGES,
+                    Origin::Regular,
+                ),
+                role(MEMBER_ROLE, 1, Permissions::empty(), Origin::Regular),
             ],
         )
     }
@@ -558,9 +591,9 @@ mod tests {
 
     #[test]
     fn ranks_follow_discord_order() {
-        let low_id = role(RoleId::new(1), 3, Permissions::empty(), false);
-        let high_id = role(RoleId::new(2), 3, Permissions::empty(), false);
-        let higher = role(RoleId::new(3), 4, Permissions::empty(), false);
+        let low_id = role(RoleId::new(1), 3, Permissions::empty(), Origin::Regular);
+        let high_id = role(RoleId::new(2), 3, Permissions::empty(), Origin::Regular);
+        let higher = role(RoleId::new(3), 4, Permissions::empty(), Origin::Regular);
         // При равных позициях старше роль с меньшим ID.
         assert!(low_id.rank() > high_id.rank());
         assert!(higher.rank() > low_id.rank());

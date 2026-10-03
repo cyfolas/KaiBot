@@ -22,9 +22,9 @@ use tracing::warn;
 
 pub use self::messages::PER_CHANNEL as MESSAGES_PER_CHANNEL;
 use self::messages::{Edit, MessageStore, Origin, Snapshot};
+use crate::domain::hierarchy::{Hierarchy, Person, Standing};
 use crate::error::{AppError, Chain};
 use crate::framework::Cx;
-use crate::hierarchy::{Hierarchy, Person, Standing};
 use crate::settings::LogKind;
 use crate::state::AppState;
 

@@ -64,6 +64,14 @@ impl<'a> Options<'a> {
     }
 }
 
+/// Роли, выбранные в меню ролей; для других компонентов — пусто.
+pub fn selected_roles(component: &ComponentInteraction) -> &[RoleId] {
+    match &component.data.kind {
+        ComponentInteractionDataKind::RoleSelect { values } => values,
+        _ => &[],
+    }
+}
+
 /// Значение текстового поля формы; пустые и состоящие из пробелов поля считаются незаполненными.
 pub fn modal_value<'a>(modal: &'a ModalInteraction, input_id: &str) -> Option<&'a str> {
     modal

@@ -11,7 +11,8 @@ use std::sync::{Arc, PoisonError, RwLock};
 use serenity::all::{ChannelId, GuildId};
 use tokio::sync::Mutex;
 
-use crate::access::{GlobalAccess, GuildAccess};
+use crate::domain::access::{GlobalAccess, GuildAccess};
+use crate::domain::policy::Policy;
 use crate::error::{AppError, Fatal, Result};
 use crate::storage::Storage;
 
@@ -20,6 +21,8 @@ use crate::storage::Storage;
 pub struct GuildSettings {
     pub access: GuildAccess,
     pub logs: LogChannels,
+    /// Политика прав; `None` — не настроена (нет роли участника).
+    pub policy: Option<Policy>,
 }
 
 /// Вид журнала сервера.
@@ -203,7 +206,7 @@ mod tests {
     use serenity::all::UserId;
 
     use super::*;
-    use crate::access::{Effect, GlobalMode, GuildMode, Subject};
+    use crate::domain::access::{Effect, GlobalMode, GuildMode, Subject};
 
     async fn settings() -> Settings {
         Settings::load(Storage::in_memory().await.unwrap())

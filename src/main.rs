@@ -4,22 +4,21 @@
 //! * [`app`] — запуск процесса: база, Discord API, регистрация команд, Gateway, завершение;
 //! * [`commands`] — возможности бота, по модулю на команду; [`journal`] — журналы сервера;
 //! * [`framework`] — инфраструктура взаимодействий, ничего не знающая о конкретных командах;
-//! * [`access`], [`hierarchy`], [`text`] — чистая логика: доступ к боту, иерархия ролей, текст;
+//! * [`domain`] — чистая логика без ввода-вывода: права Discord, классификация ролей, доступ к
+//!   боту, иерархия, политика прав, текст; покрыта тестами;
 //! * [`settings`] → [`storage`] — настройки в памяти поверх SQLite;
 //! * [`config`], [`state`], [`error`] — общие типы.
 
-mod access;
 mod app;
 mod commands;
 mod config;
+mod domain;
 mod error;
 mod framework;
-mod hierarchy;
 mod journal;
 mod settings;
 mod state;
 mod storage;
-mod text;
 
 /// Имя бота в ответах, журналах и причинах журнала аудита Discord.
 pub const BOT_NAME: &str = "Axiom";

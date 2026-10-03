@@ -1,7 +1,7 @@
 //! `/staff` — администрация сервера по данным Discord в реальном времени.
 //!
 //! Никаких зашитых ID: административной считается любая роль с правами управления (см.
-//! [`crate::hierarchy`]), порядок групп — позиции ролей на сервере, владелец — владелец сервера
+//! [`crate::domain::hierarchy`]), порядок групп — позиции ролей на сервере, владелец — владелец сервера
 //! по данным Discord. Роли интеграций (в том числе роль самого бота) и роли-«разделители» без
 //! прав не учитываются. Каждый участник показывается один раз — под своей самой высокой такой
 //! ролью. Изменить состав — `/staff-edit`.
@@ -13,9 +13,9 @@ use std::collections::HashMap;
 use serenity::all::*;
 
 use self::render::StaffRole;
+use crate::domain::hierarchy::Hierarchy;
 use crate::error::{AppError, Result};
 use crate::framework::{Cx, Options, SlashCommand};
-use crate::hierarchy::Hierarchy;
 
 /// Максимальный размер страницы `GET /guilds/{id}/members`.
 const MEMBERS_PAGE: u64 = 1000;
@@ -74,7 +74,7 @@ fn staff_roles(cx: &Cx<'_>) -> Result<(String, UserId, Vec<StaffRole>)> {
         .into_iter()
         .map(|role| StaffRole {
             id: role.id,
-            administrator: role.permissions.administrator(),
+            tier: role.tier(),
             members: Vec::new(),
         })
         .collect();

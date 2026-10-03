@@ -1,6 +1,6 @@
 //! `/staff-edit` — изменение состава администрации: выдать, снять, назначить роль.
 //!
-//! Правила — в [`crate::hierarchy`]: изменение выполняется, только если его разрешил бы
+//! Правила — в [`crate::domain::hierarchy`]: изменение выполняется, только если его разрешил бы
 //! Discord и вызывающий не получает через бота больше, чем может сам. План проверяется целиком
 //! до первого запроса, поэтому отказ ничего не меняет. Каждое изменение пишется в системный
 //! журнал и журнал аудита Discord (с указанием вызывающего).
@@ -8,11 +8,11 @@
 use serenity::all::*;
 use tracing::{error, info};
 
+use crate::domain::hierarchy::{self, Hierarchy, Person, Plan, Request, mentions};
+use crate::domain::text::truncate;
 use crate::error::{AppError, Chain, Result};
 use crate::framework::{Cx, Options, SlashCommand};
-use crate::hierarchy::{self, Hierarchy, Person, Plan, Request, mentions};
 use crate::journal::{self, system};
-use crate::text::truncate;
 
 const NAME: &str = "staff-edit";
 const COLOR: Colour = Colour(0x00EB_459E);
@@ -269,12 +269,13 @@ async fn roles(cx: Cx<'_>) -> Result<CreateEmbed> {
             } else {
                 "✅"
             };
-            let full = if role.permissions.administrator() {
-                " · полные права"
-            } else {
-                ""
-            };
-            format!("{mark} {}{full}", role.id.mention())
+            let tier = role.tier();
+            format!(
+                "{mark} {} {} · {}",
+                tier.emoji(),
+                role.id.mention(),
+                tier.label()
+            )
         })
         .collect();
 

@@ -1,12 +1,12 @@
 //! `/dev` — управление ботом на уровне приложения: режим обслуживания и глобальные блокировки.
 //!
-//! Только для разработчиков (см. [`crate::access`]). Действия разработчиков не привязаны к
+//! Только для разработчиков (см. [`crate::domain::access`]). Действия разработчиков не привязаны к
 //! серверу, поэтому пишутся в журнал процесса с target `audit`, а не в системный журнал сервера.
 
 use serenity::all::*;
 use tracing::info;
 
-use crate::access::GlobalMode;
+use crate::domain::access::GlobalMode;
 use crate::error::{AppError, Result};
 use crate::framework::{Cx, Options, SlashCommand, ephemeral, ephemeral_embed};
 

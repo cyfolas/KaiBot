@@ -7,7 +7,7 @@ use tracing::{debug, error, info, warn};
 
 use super::reply::report_error;
 use super::{Caller, CustomId, Cx, Registry, SlashCommand};
-use crate::access::{self, Principal};
+use crate::domain::access::{self, Principal};
 use crate::error::{AppError, Chain, Result};
 use crate::state::AppState;
 

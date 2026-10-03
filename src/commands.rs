@@ -7,6 +7,7 @@ mod access;
 mod dev;
 mod embed;
 mod logs;
+mod perms;
 mod ping;
 mod say;
 mod staff;
@@ -20,6 +21,7 @@ const ALL: &[&dyn SlashCommand] = &[
     &embed::Embed,
     &staff::Staff,
     &staff_edit::StaffEdit,
+    &perms::Perms,
     &access::Access,
     &logs::Logs,
     &dev::Dev,

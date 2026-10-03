@@ -7,12 +7,12 @@
 //! * **Разработчики бота** — уровень приложения (`AppState::developers`), с сервером не связан и
 //!   прав на нём не даёт.
 //!
-//! Поверх прав Discord действует доступ к самому боту — см. [`crate::access`].
+//! Поверх прав Discord действует доступ к самому боту — см. [`crate::domain::access`].
 
 use serenity::all::*;
 
+use crate::domain::text::describe_permissions as describe;
 use crate::error::{AppError, Result};
-use crate::text::describe_permissions as describe;
 
 /// Участник сервера, вызвавший взаимодействие.
 #[derive(Clone, Copy)]

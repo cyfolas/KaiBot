@@ -1,14 +1,16 @@
 //! `/access` — доступ к боту на сервере: режим и правила для пользователей и ролей.
 //!
-//! Логика решения — [`crate::access`]; здесь только ввод, сохранение и системный журнал.
+//! Логика решения — [`crate::domain::access`]; здесь только ввод, сохранение и системный журнал.
 
 use serenity::all::*;
 
-use crate::access::{Effect, GuildAccess, GuildMode, MANAGER_PERMISSIONS, RulesFull, Subject};
+use crate::domain::access::{
+    Effect, GuildAccess, GuildMode, MANAGER_PERMISSIONS, RulesFull, Subject,
+};
+use crate::domain::text::{describe_permissions, join_within};
 use crate::error::{AppError, Result};
 use crate::framework::{Cx, Options, SlashCommand, ephemeral, ephemeral_embed};
 use crate::journal::{self, system};
-use crate::text::{describe_permissions, join_within};
 
 const NAME: &str = "access";
 const COLOR: Colour = Colour(0x0058_65F2);
@@ -150,7 +152,7 @@ async fn set_rule(cx: Cx<'_>, options: &Options<'_>, effect: Option<Effect>) -> 
             Some(effect) => settings.access.set_rule(subject, effect).map_err(|RulesFull| {
                 AppError::user(format!(
                     "Правил уже {}: снимите ненужные (`/access reset`), прежде чем добавлять новые.",
-                    crate::access::MAX_RULES
+                    crate::domain::access::MAX_RULES
                 ))
             }),
             None => Ok(settings.access.remove_rule(subject)),
@@ -279,7 +281,7 @@ mod tests {
     use serenity::all::{RoleId, UserId};
 
     use super::*;
-    use crate::access::MAX_RULES;
+    use crate::domain::access::MAX_RULES;
 
     #[test]
     fn status_fits_embed_with_maximum_rules() {

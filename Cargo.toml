@@ -1,10 +1,10 @@
 [package]
 name = "axiom"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 # Минимум sqlx 0.9.
 rust-version = "1.94"
-description = "Axiom — Discord-бот на Rust и Serenity: администрация, режимы доступа, журналы сервера"
+description = "Axiom — Discord-бот на Rust и Serenity: администрация, политика прав, режимы доступа, журналы сервера"
 license = "MIT"
 publish = false
 
