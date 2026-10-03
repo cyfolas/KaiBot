@@ -381,7 +381,8 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-То же выполняет CI (`.github/workflows/ci.yml`) на каждый push в `main` и pull request.
+Автоматический CI в репозитории не настроен: каталог `.github/` исключён (`.gitignore`), поэтому
+эти три команды выполняются локально перед каждым коммитом.
 
 ---
 
